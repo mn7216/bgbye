@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Button, Popover, FormGroup, FormControlLabel, Checkbox, Typography, Divider, IconButton } from '@mui/material';
+import { Button, Popover, FormGroup, FormControlLabel, Checkbox, Divider, IconButton } from '@mui/material';
 import ChecklistIcon from '@mui/icons-material/Checklist';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import ModelsInfo from './ModelsInfo';

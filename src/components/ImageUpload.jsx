@@ -47,13 +47,12 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
   const [transparent, setTransparent] = useState(true);
   const [colorBG, setColorBG] = useState('radial-gradient(circle, #fcdfa4 0%, #ffd83b 100%)'); //useState('radial-gradient(circle, #87CEFA 0%, #1E90FF 100%)');
 
-  const [imageWidth, setImageWidth] = useState('500px'); // Default width
-
+  // Set image width based on the actual image dimensions
   useEffect(() => {
     if (selectedFile) {
       const image = new Image();
       image.onload = () => {
-        setImageWidth(`${image.width}px`);
+        // We're not using setImageWidth anymore, but we could resize the container here if needed
       };
       image.src = selectedFile;
     }
@@ -82,6 +81,18 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
 
 
   const processFile = useCallback(async (file, method) => {
+    // Validate file before sending
+    if (!file || file.size === 0) {
+      showErrorToast(`Invalid ${file.type.startsWith('video') ? 'video' : 'image'} file: Empty file`);
+      return null;
+    }
+    
+    // Check file type
+    if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+      showErrorToast(`Unsupported file type: ${file.type}`);
+      return null;
+    }
+    
     const formData = new FormData();
     formData.append('file', file);
     formData.append('method', method);
@@ -89,21 +100,35 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
     const endpoint = isVideo ? 'remove_background_video' : 'remove_background';
     
     try {
+      // Log the file being processed
+      console.log(`Processing ${isVideo ? 'video' : 'image'} with ${method}:`, {
+        name: file.name,
+        type: file.type,
+        size: file.size
+      });
+      
       const response = await axios.post(`${getModelAPIURL(method)}/${endpoint}/`, formData, {
         responseType: 'blob',
         withCredentials: false,
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
       });
 
-      if (response) {
+      if (response && response.data) {
         const fileUrl = URL.createObjectURL(response.data);
         return fileUrl;
       }
     } catch (error) {
-      console.error(`Error processing ${isVideo ? 'video' : 'image'} with ${method}:`, error);
-      showErrorToast(`Error processing ${isVideo ? 'video' : 'image'} with ${method}`);
+      const errorMessage = error.response && error.response.data ? 
+        `Error: ${error.response.data.detail || error.message}` : 
+        `Error processing ${isVideo ? 'video' : 'image'} with ${method}`;
+        
+      console.error(errorMessage, error);
+      showErrorToast(errorMessage);
     }
     return null;
-  }, [showErrorToast]);
+  }, [showErrorToast, getModelAPIURL]);
 
   const handleFileUpload = useCallback(async (event) => {
     const file = event.target.files[0];
@@ -173,16 +198,40 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
 
   const handlePaste = useCallback((event) => {
     const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+    let foundImage = false;
+    
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
-        const blob = items[i].getAsFile();
-        const file = new File([blob], "pasted-image.png", { type: blob.type });
-        const fakeEvent = { target: { files: [file] } };
-        handleFileUpload(fakeEvent);
-        break;
+        try {
+          const blob = items[i].getAsFile();
+          
+          if (!blob || blob.size === 0) {
+            console.error("Empty image data in clipboard");
+            continue;
+          }
+          
+          console.log("Pasted image:", {
+            type: blob.type,
+            size: blob.size
+          });
+          
+          const file = new File([blob], "pasted-image.png", { type: blob.type });
+          const fakeEvent = { target: { files: [file] } };
+          handleFileUpload(fakeEvent);
+          foundImage = true;
+          break;
+        } catch (err) {
+          console.error("Error handling pasted image:", err);
+          showErrorToast("Error processing pasted image");
+        }
       }
     }
-  }, [handleFileUpload]);
+    
+    if (!foundImage && items.length > 0) {
+      console.log("No valid image found in clipboard. Item types:", 
+        Array.from(items).map(item => item.type).join(', '));
+    }
+  }, [handleFileUpload, showErrorToast]);
 
   useEffect(() => {
     const dropZone = dropZoneRef.current;
@@ -208,7 +257,7 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
     try {
       const response = await axios.get(`${url}/status/${id}`, {
         responseType: 'blob',
-        withCredentials:false
+        withCredentials: false
       });
 
       // Check if the response is JSON (status update) or blob (completed video)
@@ -219,7 +268,7 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
         if (data.status === 'processing') {
           setVideoProgress(data.progress);
           setStatusMessage(data.message);
-          setTimeout(() => pollVideoStatus(id, url), 4000); // Poll every second
+          setTimeout(() => pollVideoStatus(id, url), 4000); // Poll every 4 seconds
         } else if (data.status === 'error') {
           showErrorToast('Error processing video: ' + data.message);
           setProcessing({ [videoMethod]: false });
@@ -232,8 +281,8 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
         setActiveMethod(videoMethod);
         setStatusMessage('Processing complete');
 
-        const url = URL.createObjectURL(response.data);
-        setProcessedFiles({ [videoMethod]: url });
+        const blobUrl = URL.createObjectURL(response.data);
+        setProcessedFiles({ [videoMethod]: blobUrl });
       }
     } catch (error) {
       console.error('Error polling video status:', error);
@@ -270,14 +319,13 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
     try {
       const file = await fetch(selectedFile).then(r => r.blob());
       
-      // Estimate frame count
+      // Get video duration
       const duration = await getVideoDuration(file);
-      const estimatedFrameCount = Math.ceil(duration * 24); // Assuming 24 fps
-
+      // Disabled video length limit code is commented out
+      
       //DISABLED VIDEO LENGTH LIMIT
-      //if (estimatedFrameCount > 250) {
-      // if (duration > 10){
-      //  showErrorToast(`Video too long (${estimatedFrameCount} estimated frames). Maximum allowed: 10 seconds.`);
+      //if (duration > 10){
+      //  showErrorToast(`Video too long (${duration.toFixed(1)} seconds). Maximum allowed: 10 seconds.`);
       //  setProcessing({ [videoMethod]: false });
       //  return;
       // }
@@ -590,15 +638,15 @@ return (
               <>
              
 
-              {!isPortrait && fileType=='image' && <FormControlLabel
+              {!isPortrait && fileType==='image' && <FormControlLabel
                   control={<Checkbox checked={transparent} onChange={(e)=>setTransparent(e.target.checked)} />}
                   label="Transparent"
                   sx={{color:theme.palette.text.primary}}
               />}
 
-              {isPortrait && fileType=='image' && <ToggleButton sx={{backgroundColor:theme.palette.divider, p:0}}  value="transparent" selected={!transparent} onChange={()=>{setTransparent(!transparent)}}><GradientIcon fontSize='large' color='primary'/></ToggleButton>}
+              {isPortrait && fileType==='image' && <ToggleButton sx={{backgroundColor:theme.palette.divider, p:0}}  value="transparent" selected={!transparent} onChange={()=>{setTransparent(!transparent)}}><GradientIcon fontSize='large' color='primary'/></ToggleButton>}
 
-              {!transparent && fileType=='image' &&  <GradientPickerPopout
+              {!transparent && fileType==='image' &&  <GradientPickerPopout
                 buttonLabel={!isPortrait ? "Background" : ""}
                 
                 color={colorBG}

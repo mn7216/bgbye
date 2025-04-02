@@ -211,8 +211,21 @@ gpu_lock = asyncio.Lock()
 @app.post("/remove_background/")
 async def remove_background(file: UploadFile = File(...), method: str = Form(...)):
     try:
+        # Validate file content type
+        content_type = file.content_type
+        if not content_type or not (content_type.startswith('image/') or content_type.startswith('video/')):
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {content_type}")
+        
         image_data = await file.read()
-        image = Image.open(io.BytesIO(image_data)).convert('RGB')
+        if not image_data:
+            raise HTTPException(status_code=400, detail="Empty file received")
+        
+        # Use a try/except block specifically for image opening
+        try:
+            image = Image.open(io.BytesIO(image_data)).convert('RGB')
+        except Exception as img_error:
+            logger.error(f"Failed to open image: {str(img_error)}")
+            raise HTTPException(status_code=400, detail=f"Invalid image format: {str(img_error)}")
         
         start_time = time.time()
 
@@ -256,8 +269,11 @@ async def remove_background(file: UploadFile = File(...), method: str = Form(...
 
         return Response(content=content, media_type="image/png")
 
+    except HTTPException:
+        # Re-raise HTTP exceptions without modifying them
+        raise
     except Exception as e:
-        print(str(e))
+        logger.exception(f"Error in remove_background: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 async def process_frame(frame_path, method):
@@ -425,28 +441,39 @@ async def remove_background_video(background_tasks: BackgroundTasks, file: Uploa
     try:
         logger.info(f"Starting video background removal with method: {method}")
         
+        # Validate file content type
+        content_type = file.content_type
+        if not content_type or not content_type.startswith('video/'):
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {content_type}. Must be a video format.")
+        
         # Generate a unique filename for the uploaded video
         video_id = str(uuid.uuid4())
         filename = f"input_{video_id}.mp4"
         file_path = os.path.join(TEMP_VIDEOS_DIR, filename)
         
         # Save uploaded video to the temp_videos folder
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Empty video file received")
+            
         with open(file_path, "wb") as buffer:
-            content = await file.read()
             buffer.write(content)
 
         logger.info(f"Video file saved: {file_path}")
         logger.info(f"File exists: {os.path.exists(file_path)}")
         logger.info(f"File size: {os.path.getsize(file_path)} bytes")
 
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=500, detail=f"Failed to create video file: {file_path}")
+        if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+            raise HTTPException(status_code=500, detail=f"Failed to create valid video file: {file_path}")
 
         # Start processing in the background
         background_tasks.add_task(process_video, file_path, method, video_id)
         
         return {"video_id": video_id}
 
+    except HTTPException:
+        # Re-raise HTTP exceptions without modifying them
+        raise
     except Exception as e:
         logger.exception(f"Error in video processing: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error in video processing: {str(e)}")
@@ -467,6 +494,8 @@ async def get_status(video_id: str):
     
     return status
 
+# Use on_event for now since this version of FastAPI doesn't support lifespan yet
+# The modern approach would be to use @app.lifespan in newer FastAPI versions
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(cleanup_old_videos())

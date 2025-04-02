@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, ThemeProvider, createTheme, Paper, FormGroup, FormControlLabel, Checkbox, Divider, Typography } from '@mui/material';
+import { Box, ThemeProvider, createTheme } from '@mui/material';
 import { Toaster, toast } from 'react-hot-toast';
 import ImageUpload from './components/ImageUpload';
 import ResponsiveAppBar from './components/ResponsiveAppBar';
