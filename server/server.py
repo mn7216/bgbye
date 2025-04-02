@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 import torch
 from ormbg import ORMBGProcessor 
 from typing import Dict
-from contextlib import contextmanager
+from contextlib import contextmanager, asynccontextmanager
 
 from carvekit.ml.files.models_loc import download_all
 
@@ -41,6 +41,19 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Add ORMBG model initialization
+# Define lifespan context manager for FastAPI
+@asynccontextmanager
+async def lifespan(app):
+    # Startup: Create background task for cleanup
+    cleanup_task = asyncio.create_task(cleanup_old_videos())
+    yield
+    # Shutdown: Cancel the cleanup task gracefully
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        logger.info("Cleanup task cancelled during shutdown")
+
 ormbg_model_path = os.path.expanduser("~/.ormbg/ormbg.pth")
 try:
     ormbg_processor = ORMBGProcessor(ormbg_model_path)
@@ -53,7 +66,8 @@ except FileNotFoundError:
     print("Error: ORMBG model file not found. Please run 'npm run setup-server' to download it.")
     exit(1)
 
-app = FastAPI()
+# Initialize FastAPI with lifespan
+app = FastAPI(lifespan=lifespan)
 
 # Create temp_videos folder if it doesn't exist
 TEMP_VIDEOS_DIR = "temp_videos"
@@ -494,11 +508,6 @@ async def get_status(video_id: str):
     
     return status
 
-# Use on_event for now since this version of FastAPI doesn't support lifespan yet
-# The modern approach would be to use @app.lifespan in newer FastAPI versions
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(cleanup_old_videos())
     
 
 
