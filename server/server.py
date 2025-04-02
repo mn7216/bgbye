@@ -159,8 +159,24 @@ def process_with_ormbg(image):
 def process_with_inspyrenet(image):
     return inspyrenet_model.process(image, type='rgba')
 
-def process_with_rembg(image, model='u2net'):
-    return rembg_remove(image, session=rembg_models[model])
+def process_with_rembg(image, model='u2net', **kwargs):
+    # Extract parameters from kwargs
+    alpha_matting = kwargs.get('alpha_matting', False)
+    alpha_matting_foreground_threshold = kwargs.get('alpha_matting_foreground_threshold', 240)
+    alpha_matting_background_threshold = kwargs.get('alpha_matting_background_threshold', 10)
+    alpha_matting_erode_size = kwargs.get('alpha_matting_erode_size', 10)
+    post_process_mask = kwargs.get('post_process_mask', False)
+    
+    # Apply custom parameters for logo-friendly processing
+    return rembg_remove(
+        image, 
+        session=rembg_models[model],
+        alpha_matting=alpha_matting,
+        alpha_matting_foreground_threshold=alpha_matting_foreground_threshold,
+        alpha_matting_background_threshold=alpha_matting_background_threshold,
+        alpha_matting_erode_size=alpha_matting_erode_size,
+        post_process_mask=post_process_mask
+    )
 
 def process_with_carvekit(image, model='u2net'):
     # Initialize segmentation network based on model input
@@ -227,7 +243,15 @@ def carvekit_video_model_context(model_name):
 gpu_lock = asyncio.Lock()
 
 @app.post("/remove_background/")
-async def remove_background(file: UploadFile = File(...), method: str = Form(...)):
+async def remove_background(
+    file: UploadFile = File(...), 
+    method: str = Form(...),
+    alpha_matting: bool = Form(False),
+    alpha_matting_foreground_threshold: int = Form(240),
+    alpha_matting_background_threshold: int = Form(10),
+    alpha_matting_erode_size: int = Form(10),
+    post_process_mask: bool = Form(False)
+):
     try:
         # Validate file content type
         content_type = file.content_type
@@ -259,12 +283,21 @@ async def remove_background(file: UploadFile = File(...), method: str = Form(...
                         inspyrenet_model.model.to('cpu')
                     return result
             elif method in ['u2net_human_seg', 'u2netp', 'isnet-general-use', 'isnet-anime', 'sam', 'silueta', 'rmbg2']:
+                # Pass all the model parameters to the processing function
+                model_params = {
+                    'alpha_matting': alpha_matting,
+                    'alpha_matting_foreground_threshold': alpha_matting_foreground_threshold,
+                    'alpha_matting_background_threshold': alpha_matting_background_threshold, 
+                    'alpha_matting_erode_size': alpha_matting_erode_size,
+                    'post_process_mask': post_process_mask
+                }
+                
                 if method == 'rmbg2':
                     # For compatibility with the frontend, but rmbg2 isn't supported directly
                     # Fallback to isnet-general-use which is similar in quality
-                    return await asyncio.to_thread(process_with_rembg, image, model='isnet-general-use')
+                    return await asyncio.to_thread(process_with_rembg, image, model='isnet-general-use', **model_params)
                 else:
-                    return await asyncio.to_thread(process_with_rembg, image, model=method)
+                    return await asyncio.to_thread(process_with_rembg, image, model=method, **model_params)
             elif method == 'ormbg':
                 return await asyncio.to_thread(process_with_ormbg, image)
             elif method in ['u2net', 'tracer', 'basnet', 'deeplab']:
@@ -299,8 +332,17 @@ async def remove_background(file: UploadFile = File(...), method: str = Form(...
         logger.exception(f"Error in remove_background: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-async def process_frame(frame_path, method):
+async def process_frame(frame_path, method, **kwargs):
     img = Image.open(frame_path).convert('RGB')
+    
+    # Default model parameters (same as endpoint defaults)
+    model_params = {
+        'alpha_matting': kwargs.get('alpha_matting', False),
+        'alpha_matting_foreground_threshold': kwargs.get('alpha_matting_foreground_threshold', 240),
+        'alpha_matting_background_threshold': kwargs.get('alpha_matting_background_threshold', 10),
+        'alpha_matting_erode_size': kwargs.get('alpha_matting_erode_size', 10),
+        'post_process_mask': kwargs.get('post_process_mask', False)
+    }
     
     if method == 'bria':
         processed_frame = await asyncio.to_thread(process_with_bria, img)
@@ -308,9 +350,9 @@ async def process_frame(frame_path, method):
         if method == 'rmbg2':
             # For compatibility with the frontend, but rmbg2 isn't supported directly
             # Fallback to isnet-general-use which is similar in quality
-            processed_frame = await asyncio.to_thread(process_with_rembg, img, model='isnet-general-use')
+            processed_frame = await asyncio.to_thread(process_with_rembg, img, model='isnet-general-use', **model_params)
         else:
-            processed_frame = await asyncio.to_thread(process_with_rembg, img, model=method)
+            processed_frame = await asyncio.to_thread(process_with_rembg, img, model=method, **model_params)
     elif method == 'ormbg':
         processed_frame = await asyncio.to_thread(process_with_ormbg, img)
     else:
@@ -318,7 +360,7 @@ async def process_frame(frame_path, method):
     
     return processed_frame
 
-async def process_video(video_path, method, video_id):
+async def process_video(video_path, method, video_id, **model_params):
     try:
         processing_status[video_id] = {'status': 'processing', 'progress': 0, 'message': 'Initializing'}
         
@@ -408,7 +450,7 @@ async def process_video(video_path, method, video_id):
                     elif method in ['u2net', 'tracer', 'basnet', 'deeplab']:
                         processed_frame = model([img])[0]
                     else:
-                        processed_frame = await process_frame(frame_path, method)
+                        processed_frame = await process_frame(frame_path, method, **model_params)
 
                     processed_frame.save(frame_path, format='PNG')
                     progress = (i + 1) / total_frames * 100
@@ -465,7 +507,16 @@ async def process_video(video_path, method, video_id):
         logger.info(f"Cleaned up frames directory: {frames_dir}")
 
 @app.post("/remove_background_video/")
-async def remove_background_video(background_tasks: BackgroundTasks, file: UploadFile = File(...), method: str = Form(...)):
+async def remove_background_video(
+    background_tasks: BackgroundTasks, 
+    file: UploadFile = File(...), 
+    method: str = Form(...),
+    alpha_matting: bool = Form(False),
+    alpha_matting_foreground_threshold: int = Form(240),
+    alpha_matting_background_threshold: int = Form(10),
+    alpha_matting_erode_size: int = Form(10),
+    post_process_mask: bool = Form(False)
+):
     try:
         logger.info(f"Starting video background removal with method: {method}")
         
@@ -494,8 +545,17 @@ async def remove_background_video(background_tasks: BackgroundTasks, file: Uploa
         if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
             raise HTTPException(status_code=500, detail=f"Failed to create valid video file: {file_path}")
 
+        # Pass model parameters to the background task
+        model_params = {
+            'alpha_matting': alpha_matting,
+            'alpha_matting_foreground_threshold': alpha_matting_foreground_threshold,
+            'alpha_matting_background_threshold': alpha_matting_background_threshold,
+            'alpha_matting_erode_size': alpha_matting_erode_size,
+            'post_process_mask': post_process_mask
+        }
+        
         # Start processing in the background
-        background_tasks.add_task(process_video, file_path, method, video_id)
+        background_tasks.add_task(process_video, file_path, method, video_id, **model_params)
         
         return {"video_id": video_id}
 

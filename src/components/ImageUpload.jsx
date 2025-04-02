@@ -16,8 +16,13 @@ import {
   Checkbox,
   FormControlLabel,
   useMediaQuery,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Slider,
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import axios from 'axios';
 import { ImgComparisonSlider } from '@img-comparison-slider/react';
 import pLimit from 'p-limit';
@@ -27,6 +32,7 @@ import Magnifier from 'react18-image-magnifier'
 import ModelsInfo from './ModelsInfo';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import GradientIcon from '@mui/icons-material/Gradient';
+// Removed unnecessary imports
 
 const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) => {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -46,6 +52,33 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
 
   const [transparent, setTransparent] = useState(true);
   const [colorBG, setColorBG] = useState('radial-gradient(circle, #fcdfa4 0%, #ffd83b 100%)'); //useState('radial-gradient(circle, #87CEFA 0%, #1E90FF 100%)');
+  
+  // Model parameters for customization - gets model-specific settings for any model
+  const getModelParams = (method) => {
+    // Clean method name for localStorage key (handle models with hyphens)
+    const methodKey = method.replace('-', '_');
+    
+    // Get model-specific settings with defaults
+    return {
+      alpha_matting: localStorage.getItem(`bgbye_${methodKey}_alpha_matting`) === 'true',
+      alpha_matting_foreground_threshold: parseInt(localStorage.getItem(`bgbye_${methodKey}_fg_threshold`) || 
+        // Default values based on model
+        (method === 'sam' ? '220' : 
+         method === 'isnet-general-use' ? '240' :
+         method === 'u2net' ? '235' :
+         method === 'u2netp' ? '235' :
+         method === 'isnet-anime' ? '235' : '240')),
+      alpha_matting_background_threshold: parseInt(localStorage.getItem(`bgbye_${methodKey}_bg_threshold`) || 
+        // Default values based on model
+        (method === 'sam' ? '20' : 
+         method === 'isnet-general-use' ? '10' :
+         method === 'u2net' ? '15' :
+         method === 'u2netp' ? '15' :
+         method === 'isnet-anime' ? '15' : '10')),
+      alpha_matting_erode_size: parseInt(localStorage.getItem(`bgbye_${methodKey}_erode_size`) || '10'),
+      post_process_mask: localStorage.getItem(`bgbye_${methodKey}_post_process`) === 'true'
+    };
+  };
 
   // Set image width based on the actual image dimensions
   useEffect(() => {
@@ -96,6 +129,13 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
     const formData = new FormData();
     formData.append('file', file);
     formData.append('method', method);
+    
+    // Add model-specific parameters to the request
+    const modelSpecificParams = getModelParams(method);
+    Object.entries(modelSpecificParams).forEach(([key, value]) => {
+      formData.append(key, value.toString());
+    });
+    
     const isVideo = file.type.startsWith('video');
     const endpoint = isVideo ? 'remove_background_video' : 'remove_background';
     
@@ -475,7 +515,7 @@ return (
         flexDirection: isPortrait ? 'column' : 'row',
         alignItems: 'flex-start', 
         width: '100%', 
-        maxWidth: '1024px',
+        maxWidth: '1280px',
         position: 'relative',
       }}>
          
@@ -543,6 +583,7 @@ return (
             top: isPortrait ? '1em' : 'auto',
             right: isPortrait ? '1em' : 'auto',
             zIndex: isPortrait ? 1000 : 'auto',
+            width: isPortrait ? 'auto' : '250px',
           }}>
            {(!isPortrait || fileType !== 'video') && <Paper sx={{
               backgroundColor: isPortrait ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0)',
@@ -564,6 +605,7 @@ return (
                     flexDirection: 'column',
                     flexWrap: 'wrap',
                     justifyContent: 'center',
+                    mb: 2
                   }}
                 >
                   {Object.entries(localSelectedModels)
@@ -589,6 +631,7 @@ return (
                   }
                 </ToggleButtonGroup>
               )}
+              
             </Paper>}
           {selectedFile && fileType === 'video' && (
         <Box sx={{ mt: 2 }}>
@@ -636,7 +679,7 @@ return (
             
             {processedFiles[activeMethod] && (
               <>
-             
+              
 
               {!isPortrait && fileType==='image' && <FormControlLabel
                   control={<Checkbox checked={transparent} onChange={(e)=>setTransparent(e.target.checked)} />}

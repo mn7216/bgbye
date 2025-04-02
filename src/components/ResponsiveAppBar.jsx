@@ -16,6 +16,8 @@ import { Deblur } from '@mui/icons-material';
 import ModeNightIcon from '@mui/icons-material/ModeNight';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import Brightness3Icon from '@mui/icons-material/Brightness3';
+// Removed tune icon import
+// Removed settings icon import
 //const pages = ['Products', 'Pricing', 'Blog'];
 const pages = ['About', 'Help'];
 
@@ -53,11 +55,11 @@ function ResponsiveAppBar({toggleTheme, darkMode}) {
   };
 
   return (
-    <AppBar position="fixed" sx={{}} >
+    <AppBar position="fixed" sx={{ height: '64px' }} >
       <Container maxWidth="xl" >
-        <Toolbar disableGutters variant="dense" sx={{
-          maxHeight:'20px',
-          minHeight:0
+        <Toolbar disableGutters sx={{
+          height: '48px',
+          padding: '0 16px'
         }}>
           <Deblur sx={{ display: { xs: 'none', md: 'flex' }, mr: 1 }} />
           <Typography
@@ -138,7 +140,7 @@ function ResponsiveAppBar({toggleTheme, darkMode}) {
             Matxinh
           </Typography>
           <Box sx={{ flexGrow: 1, display: { xs: 'flex', md: 'flex' } }}>
-          {pages.map((page) => (
+            {pages.map((page) => (
               <Button
                 key={page}
                 onClick={() => handlePageClick(page)}
@@ -147,10 +149,11 @@ function ResponsiveAppBar({toggleTheme, darkMode}) {
                 {page}
               </Button>
             ))}
-             <IconButton onClick={toggleTheme} color={darkMode?'primary':'warning'} size="large">
-            {!darkMode ? <LightModeIcon fontSize="inherit" /> : <Brightness3Icon fontSize="inherit" />}
+            <IconButton onClick={toggleTheme} color={darkMode?'primary':'warning'} size="large">
+              {!darkMode ? <LightModeIcon fontSize="inherit" /> : <Brightness3Icon fontSize="inherit" />}
             </IconButton>
           </Box>
+          {/* Removed settings icon */}
 
           {false&&<Box sx={{ flexGrow: 0 }}>
             <Tooltip title="Open settings">

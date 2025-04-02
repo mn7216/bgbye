@@ -1,5 +1,15 @@
 import React, { useState } from 'react';
-import { Box, ThemeProvider, createTheme } from '@mui/material';
+import { 
+  Box, 
+  ThemeProvider, 
+  createTheme, 
+  Typography, 
+  Checkbox, 
+  FormControlLabel,
+  Slider,
+  Divider,
+  Button
+} from '@mui/material';
 import { Toaster, toast } from 'react-hot-toast';
 import ImageUpload from './components/ImageUpload';
 import ResponsiveAppBar from './components/ResponsiveAppBar';
@@ -26,6 +36,7 @@ function App() {
     const storedTheme = localStorage.getItem(APP_ID + '_theme');
     return storedTheme !== null ? storedTheme === 'true' : false;
   });
+  // Removed redundant settings state
   const [selectedModels, setSelectedModels] = useState(
     Object.keys(ModelsInfo).reduce((acc, key) => {
       acc[key] = true;
@@ -69,20 +80,28 @@ function App() {
           alignItems: 'center',
           minHeight: '100vh',
           background: theme.palette.background.default,
+          position: 'relative',
         }}
       >
-        <ResponsiveAppBar toggleTheme={toggleTheme} darkMode={darkMode}/>
-        {Array.from({ length: processedPanels + 1 }).map((_, index) => (
-          <Box key={index} sx={{ mt: 4 }}>
-            <ImageUpload 
-              onProcessed={handleProcessed} 
-              theme={theme} 
-              fileID={index}
-              selectedModels={selectedModels}
-              showErrorToast={showErrorToast}
-            />
-          </Box>
-        ))}
+        <ResponsiveAppBar 
+          toggleTheme={toggleTheme} 
+          darkMode={darkMode}
+        />
+        {/* Removed redundant settings panel */}
+        
+        <Box sx={{ mt: '64px', pt: 2 }}>
+          {Array.from({ length: processedPanels + 1 }).map((_, index) => (
+            <Box key={index} sx={{ mt: 2 }}>
+              <ImageUpload 
+                onProcessed={handleProcessed} 
+                theme={theme} 
+                fileID={index}
+                selectedModels={selectedModels}
+                showErrorToast={showErrorToast}
+              />
+            </Box>
+          ))}
+        </Box>
         <MethodSelector  selectedModels={selectedModels} handleModelChange={handleModelChange} />
       </Box>
       <Toaster />
