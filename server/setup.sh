@@ -30,4 +30,8 @@ fi
 
 mkdir -p ~/.ormbg && echo "Downloading the ORMBG model..." && wget -O ~/.ormbg/ormbg.pth https://huggingface.co/schirrmacher/ormbg/resolve/main/models/ormbg.pth
 
+# Pre-download rembg models
+echo "Pre-downloading rembg models..."
+python3 -c "from rembg import new_session; print('Downloading u2net...'); new_session('u2net'); print('Downloading u2netp...'); new_session('u2netp'); print('Downloading u2net_human_seg...'); new_session('u2net_human_seg'); print('Downloading isnet-general-use...'); new_session('isnet-general-use'); print('Downloading isnet-anime...'); new_session('isnet-anime'); print('Downloading sam...'); new_session('sam'); print('Downloading silueta...'); new_session('silueta'); print('All rembg models downloaded successfully!')"
+
 echo "Setup completed successfully!"

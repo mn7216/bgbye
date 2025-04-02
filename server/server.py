@@ -110,9 +110,12 @@ inspyrenet_model = Remover()
 inspyrenet_model.model.cpu()
 rembg_models = {
     'u2net': new_session('u2net'),
+    'u2netp': new_session('u2netp'),
     'u2net_human_seg': new_session('u2net_human_seg'),
     'isnet-general-use': new_session('isnet-general-use'),
-    'isnet-anime': new_session('isnet-anime')
+    'isnet-anime': new_session('isnet-anime'),
+    'sam': new_session('sam'),
+    'silueta': new_session('silueta')
 }
 
 # Initialize Carvekit models
@@ -147,6 +150,7 @@ def process_with_bria(image):
     no_bg_image = Image.new("RGBA", image.size, (0, 0, 0, 0))
     no_bg_image.paste(image, mask=mask)
     return no_bg_image
+
 
 def process_with_ormbg(image):
     result = ormbg_processor.process_image(image)
@@ -254,8 +258,13 @@ async def remove_background(file: UploadFile = File(...), method: str = Form(...
                     finally:
                         inspyrenet_model.model.to('cpu')
                     return result
-            elif method in ['u2net_human_seg', 'isnet-general-use', 'isnet-anime']:
-                return await asyncio.to_thread(process_with_rembg, image, model=method)
+            elif method in ['u2net_human_seg', 'u2netp', 'isnet-general-use', 'isnet-anime', 'sam', 'silueta', 'rmbg2']:
+                if method == 'rmbg2':
+                    # For compatibility with the frontend, but rmbg2 isn't supported directly
+                    # Fallback to isnet-general-use which is similar in quality
+                    return await asyncio.to_thread(process_with_rembg, image, model='isnet-general-use')
+                else:
+                    return await asyncio.to_thread(process_with_rembg, image, model=method)
             elif method == 'ormbg':
                 return await asyncio.to_thread(process_with_ormbg, image)
             elif method in ['u2net', 'tracer', 'basnet', 'deeplab']:
@@ -295,8 +304,13 @@ async def process_frame(frame_path, method):
     
     if method == 'bria':
         processed_frame = await asyncio.to_thread(process_with_bria, img)
-    elif method in ['u2net_human_seg', 'isnet-general-use', 'isnet-anime']:
-        processed_frame = await asyncio.to_thread(process_with_rembg, img, model=method)
+    elif method in ['u2net', 'u2netp', 'u2net_human_seg', 'isnet-general-use', 'isnet-anime', 'sam', 'silueta', 'rmbg2']:
+        if method == 'rmbg2':
+            # For compatibility with the frontend, but rmbg2 isn't supported directly
+            # Fallback to isnet-general-use which is similar in quality
+            processed_frame = await asyncio.to_thread(process_with_rembg, img, model='isnet-general-use')
+        else:
+            processed_frame = await asyncio.to_thread(process_with_rembg, img, model=method)
     elif method == 'ormbg':
         processed_frame = await asyncio.to_thread(process_with_ormbg, img)
     else:

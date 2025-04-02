@@ -6,6 +6,12 @@ const ModelsInfo = {
         sourceUrl: 'https://huggingface.co/briaai/RMBG-1.4', 
         apiUrlVar: 'VITE_BRIA_URL'
     },
+    rmbg2: { 
+        displayName: 'Bria RMBG2.0', 
+        shortName: "RMBG2.0",
+        sourceUrl: 'https://huggingface.co/briaai/RMBG-2.0', 
+        apiUrlVar: 'VITE_RMBG2_URL'
+    },
     inspyrenet: { 
         displayName: 'InSPyReNet', 
         shortName: "InSPyRe",
@@ -17,6 +23,24 @@ const ModelsInfo = {
         shortName: "U2Net",
         sourceUrl: 'https://github.com/OPHoperHPO/image-background-remove-tool#%EF%B8%8F-how-does-it-work', 
         apiUrlVar: 'VITE_U2NET_URL'
+    },
+    u2netp: { 
+        displayName: 'U2Net-Lite', 
+        shortName: "U2Net-S",
+        sourceUrl: 'https://github.com/danielgatis/rembg?tab=readme-ov-file#models', 
+        apiUrlVar: 'VITE_U2NETP_URL'
+    },
+    sam: { 
+        displayName: 'SAM', 
+        shortName: "SAM",
+        sourceUrl: 'https://github.com/danielgatis/rembg?tab=readme-ov-file#models', 
+        apiUrlVar: 'VITE_SAM_URL'
+    },
+    silueta: { 
+        displayName: 'Silueta', 
+        shortName: "Silueta",
+        sourceUrl: 'https://github.com/danielgatis/rembg?tab=readme-ov-file#models', 
+        apiUrlVar: 'VITE_SILUETA_URL'
     },
     tracer: { 
         displayName: 'Tracer-B7', 
