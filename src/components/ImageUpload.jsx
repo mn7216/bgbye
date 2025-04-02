@@ -66,9 +66,9 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
   const fileInputID = "fileInput" + fileID.toString();
 
   const getModelAPIURL = (method)=>{
-    console.log(method, ModelsInfo[method].apiUrlVar, process.env[ModelsInfo[method].apiUrlVar]);
+    console.log(method, ModelsInfo[method].apiUrlVar, import.meta.env[ModelsInfo[method].apiUrlVar]);
 
-    return process.env[ModelsInfo[method].apiUrlVar];
+    return import.meta.env[ModelsInfo[method].apiUrlVar];
   }
 
   useEffect(() => {
