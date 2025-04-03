@@ -31,6 +31,9 @@ import DownloadIcon from '@mui/icons-material/Download';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import ViewCarouselIcon from '@mui/icons-material/ViewCarousel';
+import QueueIcon from '@mui/icons-material/Queue';
+import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
+import KeyboardArrowLeftIcon from '@mui/icons-material/KeyboardArrowLeft';
 import axios from 'axios';
 import { ImgComparisonSlider } from '@img-comparison-slider/react';
 import pLimit from 'p-limit';
@@ -55,6 +58,16 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
   const [videoProgress, setVideoProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  
+  // Enhanced batch upload states
+  const [batchFiles, setBatchFiles] = useState([]);
+  const [currentBatchIndex, setCurrentBatchIndex] = useState(0);
+  const [isProcessingBatch, setIsProcessingBatch] = useState(false);
+  const [totalBatchItems, setTotalBatchItems] = useState(0);
+  const [batchFilenames, setBatchFilenames] = useState([]);
+  const [batchResults, setBatchResults] = useState([]);
+  const [batchThumbnailView, setBatchThumbnailView] = useState(false);
+  const [parallelProcessing, setParallelProcessing] = useState(true);
 
   const [doZoom, setDoZoom] = useState(false);
   const [viewMode, setViewMode] = useState('single'); // 'single' or 'grid'
@@ -179,8 +192,8 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
     return null;
   }, [showErrorToast, getModelAPIURL]);
 
-  const handleFileUpload = useCallback(async (event) => {
-    const file = event.target.files[0];
+  // Process a single file - simplified version without queue
+  const processSingleFile = useCallback(async (file) => {
     if (!file) return;
 
     const isVideo = file.type.startsWith('video');
@@ -222,7 +235,198 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
     }
   
     onProcessed();
+    return true;
   }, [processFile, onProcessed, selectedModels, activeMethod]);
+
+  // Process a single batch item
+  const processBatchItem = useCallback(async (file, index, total) => {
+    if (!file) return;
+    
+    setIsProcessingBatch(true);
+    
+    // Show progress
+    toast.loading(`Processing file ${index + 1} of ${total}: ${file.name}`, {
+      id: 'batch-progress',
+    });
+    
+    try {
+      // Process this file
+      await processSingleFile(file);
+      
+      // Mark as complete
+      toast.success(`Processed file ${index + 1} of ${total}`, {
+        id: 'batch-progress',
+      });
+    } catch (error) {
+      console.error(`Error processing file ${file.name}:`, error);
+      showErrorToast(`Failed to process ${file.name}`);
+    }
+    
+    setIsProcessingBatch(false);
+  }, [processSingleFile, showErrorToast]);
+  
+  // Setup batch processing with parallel processing option
+  const setupBatchProcessing = useCallback((files) => {
+    if (!files || files.length === 0) return;
+    
+    const fileArray = Array.from(files);
+    
+    // Store the files for processing
+    setBatchFiles(fileArray);
+    setTotalBatchItems(fileArray.length);
+    setCurrentBatchIndex(0);
+    setBatchResults([]);
+    
+    // Store original filenames
+    const filenames = fileArray.map(file => file.name);
+    setBatchFilenames(filenames);
+    
+    if (parallelProcessing && fileArray.length > 1) {
+      // Process all files in parallel
+      toast.success(`Processing ${fileArray.length} files in parallel...`);
+      processBatchParallel(fileArray);
+    } else {
+      // Process sequentially, starting with the first file
+      toast.success(`Added ${fileArray.length} files to batch. Use the navigation buttons to view processed images.`);
+      setTimeout(() => {
+        processBatchItem(fileArray[0], 0, fileArray.length);
+      }, 100);
+    }
+  }, [processBatchItem, parallelProcessing]);
+  
+  // Process all batch files in parallel
+  const processBatchParallel = useCallback(async (files) => {
+    if (!files || files.length === 0) return;
+    
+    setIsProcessingBatch(true);
+    toast.loading(`Processing ${files.length} files in parallel...`, { id: 'batch-parallel' });
+    
+    try {
+      // Create a limit function that allows reasonable concurrency (3 files at once)
+      const limit = pLimit(3);
+      
+      // Process each file and collect results
+      const promises = files.map((file, index) => 
+        limit(async () => {
+          toast.loading(`Processing ${index + 1}/${files.length}: ${file.name}`, { id: `file-${index}` });
+          
+          try {
+            // Process this file using existing models
+            const isVideo = file.type.startsWith('video');
+            const fileType = isVideo ? 'video' : 'image';
+            const fileUrl = URL.createObjectURL(file);
+            
+            const results = {};
+            
+            if (!isVideo) {
+              // Process with all selected models
+              const modelPromises = Object.entries(selectedModels)
+                .filter(([_, isSelected]) => isSelected)
+                .map(([method, _]) => processFile(file, method)
+                  .then(result => {
+                    if (result) results[method] = result;
+                  }));
+              
+              await Promise.all(modelPromises);
+            }
+            
+            toast.success(`Processed ${file.name}`, { id: `file-${index}` });
+            
+            return {
+              originalUrl: fileUrl,
+              originalName: file.name,
+              results,
+              fileType
+            };
+          } catch (error) {
+            console.error(`Error processing file ${file.name}:`, error);
+            toast.error(`Failed to process ${file.name}`, { id: `file-${index}` });
+            return null;
+          }
+        })
+      );
+      
+      // Wait for all promises to resolve
+      const results = await Promise.all(promises);
+      const validResults = results.filter(Boolean);
+      
+      setBatchResults(validResults);
+      
+      if (validResults.length > 0) {
+        // Show first result
+        const firstResult = validResults[0];
+        setSelectedFile(firstResult.originalUrl);
+        setOriginalFilename(firstResult.originalName);
+        setFileType(firstResult.fileType);
+        setProcessedFiles(firstResult.results);
+        setActiveMethod(Object.keys(firstResult.results)[0] || null);
+        
+        setBatchThumbnailView(true);
+        setViewMode('grid');
+      }
+      
+      toast.success(`Processed ${validResults.length} of ${files.length} files successfully`, { id: 'batch-parallel' });
+    } catch (error) {
+      console.error('Error in batch processing:', error);
+      toast.error('Error processing batch files', { id: 'batch-parallel' });
+    }
+    
+    setIsProcessingBatch(false);
+  }, [processFile, selectedModels]);
+  
+  // Navigate to next or previous batch item
+  const navigateBatch = useCallback((direction) => {
+    if (batchFiles.length <= 1) return;
+    
+    if (batchResults.length > 0) {
+      // Navigate through already processed results
+      let newIndex;
+      if (direction === 'next') {
+        newIndex = (currentBatchIndex + 1) % batchResults.length;
+      } else {
+        newIndex = (currentBatchIndex - 1 + batchResults.length) % batchResults.length;
+      }
+      
+      setCurrentBatchIndex(newIndex);
+      
+      // Set the current item from results
+      const currentItem = batchResults[newIndex];
+      setSelectedFile(currentItem.originalUrl);
+      setOriginalFilename(currentItem.originalName);
+      setFileType(currentItem.fileType);
+      setProcessedFiles(currentItem.results);
+      setActiveMethod(Object.keys(currentItem.results)[0] || null);
+    } else {
+      // Original behavior for sequential processing
+      let newIndex;
+      if (direction === 'next') {
+        newIndex = (currentBatchIndex + 1) % batchFiles.length;
+      } else {
+        newIndex = (currentBatchIndex - 1 + batchFiles.length) % batchFiles.length;
+      }
+      
+      setCurrentBatchIndex(newIndex);
+      
+      // Add a small delay before processing to ensure state updates
+      setTimeout(() => {
+        processBatchItem(batchFiles[newIndex], newIndex, batchFiles.length);
+      }, 100);
+    }
+  }, [batchFiles, batchResults, currentBatchIndex, processBatchItem]);
+
+  // Handle file upload (both single and multiple)
+  const handleFileUpload = useCallback((event) => {
+    const files = Array.from(event.target.files);
+    if (files.length === 0) return;
+
+    if (files.length === 1) {
+      // Single file upload - process immediately
+      processSingleFile(files[0]);
+    } else {
+      // Multiple files - process as batch
+      setupBatchProcessing(files);
+    }
+  }, [processSingleFile, setupBatchProcessing]);
 
   const handleDragOver = (event) => {
     event.preventDefault();
@@ -238,16 +442,19 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
     event.preventDefault();
     setDragOver(false);
     
-    const file = event.dataTransfer.files[0];
-    if (file) {
-      const fakeEvent = { target: { files: [file] } };
-      handleFileUpload(fakeEvent);
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length > 0) {
+      if (files.length === 1) {
+        processSingleFile(files[0]);
+      } else {
+        setupBatchProcessing(files);
+      }
     }
-  }, [handleFileUpload]);
+  }, [processSingleFile, setupBatchProcessing]);
 
   const handlePaste = useCallback((event) => {
     const items = (event.clipboardData || event.originalEvent.clipboardData).items;
-    let foundImage = false;
+    let pastedFiles = [];
     
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
@@ -264,11 +471,10 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
             size: blob.size
           });
           
-          const file = new File([blob], "pasted-image.png", { type: blob.type });
-          const fakeEvent = { target: { files: [file] } };
-          handleFileUpload(fakeEvent);
-          foundImage = true;
-          break;
+          // Create a unique filename for pasted images
+          const timestamp = new Date().toISOString().replace(/:/g, '-');
+          const file = new File([blob], `pasted-image-${timestamp}.png`, { type: blob.type });
+          pastedFiles.push(file);
         } catch (err) {
           console.error("Error handling pasted image:", err);
           showErrorToast("Error processing pasted image");
@@ -276,11 +482,17 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
       }
     }
     
-    if (!foundImage && items.length > 0) {
+    if (pastedFiles.length > 0) {
+      if (pastedFiles.length === 1) {
+        processSingleFile(pastedFiles[0]);
+      } else {
+        setupBatchProcessing(pastedFiles);
+      }
+    } else if (items.length > 0) {
       console.log("No valid image found in clipboard. Item types:", 
         Array.from(items).map(item => item.type).join(', '));
     }
-  }, [handleFileUpload, showErrorToast]);
+  }, [processSingleFile, setupBatchProcessing, showErrorToast]);
 
   useEffect(() => {
     const dropZone = dropZoneRef.current;
@@ -457,30 +669,69 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
       const JSZip = (await import('jszip')).default;
       const zip = new JSZip();
       
-      // Process all images in parallel
-      const downloadPromises = Object.entries(processedFiles).map(async ([method, url]) => {
-        const { dataUrl, filename } = await prepareImageForDownload(url, method);
-        // Extract the base64 data from dataUrl (remove the prefix)
-        const base64Data = dataUrl.split(',')[1];
-        // Add file to zip
-        zip.file(filename, base64Data, { base64: true });
-      });
-      
-      // Wait for all images to be processed
-      await Promise.all(downloadPromises);
-      
-      // Generate zip file
-      const zipBlob = await zip.generateAsync({ type: 'blob' });
-      
-      // Create download link
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(zipBlob);
-      link.download = `${originalFilename.split('.')[0]}_all_methods.zip`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      toast.success('All images downloaded as ZIP', { id: toastId });
+      // For batch results, download all processed images
+      if (batchResults.length > 0 && batchThumbnailView) {
+        // Create folder structure by model 
+        let totalFiles = 0;
+        
+        // Get all model names used across batch results
+        const allMethods = new Set();
+        batchResults.forEach(item => {
+          Object.keys(item.results).forEach(method => allMethods.add(method));
+        });
+        
+        // For each model, create a folder and add all images processed with that model
+        for (const method of allMethods) {
+          const methodFolder = zip.folder(method);
+          
+          // Add all files processed with this model
+          for (const item of batchResults) {
+            if (item.results[method]) {
+              const originalName = item.originalName.split('.')[0];
+              const { dataUrl } = await prepareImageForDownload(item.results[method], method);
+              const base64Data = dataUrl.split(',')[1];
+              methodFolder.file(`${originalName}_${method}.png`, base64Data, { base64: true });
+              totalFiles++;
+            }
+          }
+        }
+        
+        // Generate and download the zip file
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(zipBlob);
+        link.download = `bgbye_batch_${new Date().toISOString().replace(/:/g, '-')}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        toast.success(`All ${totalFiles} processed images downloaded as ZIP`, { id: toastId });
+      } else {
+        // Original behavior - download all methods for current image
+        const downloadPromises = Object.entries(processedFiles).map(async ([method, url]) => {
+          const { dataUrl, filename } = await prepareImageForDownload(url, method);
+          // Extract the base64 data from dataUrl (remove the prefix)
+          const base64Data = dataUrl.split(',')[1];
+          // Add file to zip
+          zip.file(filename, base64Data, { base64: true });
+        });
+        
+        // Wait for all images to be processed
+        await Promise.all(downloadPromises);
+        
+        // Generate zip file
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        
+        // Create download link
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(zipBlob);
+        link.download = `${originalFilename.split('.')[0]}_all_methods.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        toast.success('All images downloaded as ZIP', { id: toastId });
+      }
     } catch (error) {
       console.error('Error during batch download:', error);
       toast.error('Failed to download images', { id: toastId });
@@ -581,10 +832,68 @@ return (
           type="file"
           id={fileInputID}
           accept="image/*,video/*"
+          multiple
           style={{ display: 'none' }}
           onChange={handleFileUpload}
         />
       )}
+      
+    {/* Batch gallery view */}
+    {batchResults.length > 0 && viewMode === 'grid' && batchThumbnailView && (
+      <Box sx={{ 
+        width: '100%', 
+        mt: 2, 
+        p: 2, 
+        backgroundColor: theme.palette.background.paper,
+        borderRadius: 1,
+        boxShadow: 1
+      }}>
+        <Typography variant="h6" sx={{ mb: 2 }}>Batch Gallery ({batchResults.length} files)</Typography>
+        <Grid container spacing={2}>
+          {batchResults.map((item, index) => (
+            <Grid item xs={6} sm={4} md={3} lg={2} key={index}>
+              <Paper 
+                elevation={currentBatchIndex === index ? 3 : 1}
+                sx={{ 
+                  p: 1, 
+                  cursor: 'pointer',
+                  border: currentBatchIndex === index ? `2px solid ${theme.palette.primary.main}` : 'none',
+                  transition: 'all 0.2s ease'
+                }}
+                onClick={() => {
+                  setCurrentBatchIndex(index);
+                  setSelectedFile(item.originalUrl);
+                  setOriginalFilename(item.originalName);
+                  setFileType(item.fileType);
+                  setProcessedFiles(item.results);
+                  setActiveMethod(Object.keys(item.results)[0] || null);
+                  // Stay in grid view when in batch view
+                }}
+              >
+                <img 
+                  src={item.originalUrl} 
+                  alt={item.originalName}
+                  style={{ 
+                    width: '100%', 
+                    height: '120px', 
+                    objectFit: 'cover',
+                    borderRadius: 4
+                  }}
+                />
+                <Typography variant="caption" sx={{ display: 'block', mt: 1, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {item.originalName}
+                </Typography>
+                {currentBatchIndex === index && (
+                  <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', color: theme.palette.primary.main }}>
+                    Selected
+                  </Typography>
+                )}
+              </Paper>
+            </Grid>
+          ))}
+        </Grid>
+      </Box>
+    )}
 
     {selectedFile ? (
       <Box sx={{ 
@@ -605,35 +914,73 @@ return (
               viewMode === 'grid' && Object.keys(processedFiles).length > 1 ? (
                 // Grid view for comparing all processed images
                 <Box sx={{ width: '100%' }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      Click any image to select and view it in detail
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      <Tooltip title="Download all processed images at once" arrow>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          color="primary"
-                          startIcon={<DownloadIcon />}
-                          onClick={() => handleBatchDownload()}
-                        >
-                          Batch Download
-                        </Button>
-                      </Tooltip>
-                      <Tooltip title={doZoom ? "Hover over images to magnify details" : "Enable magnifying glass for all images"} arrow>
-                        <ToggleButton
-                          value="grid-zoom"
-                          selected={doZoom}
-                          onChange={() => setDoZoom(!doZoom)}
-                          aria-label="enable zoom"
-                          size="small"
-                          color="primary"
-                        >
-                          <ZoomInIcon fontSize="small" sx={{ mr: 0.5 }} />
-                          {doZoom ? "Disable Zoom" : "Enable Zoom"}
-                        </ToggleButton>
-                      </Tooltip>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', mb: 2 }}>
+                    {/* Batch mode progress and navigation */}
+                    {batchFiles.length > 1 && (
+                      <Box sx={{ mb: 2, width: '100%' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                          <Button
+                            size="small"
+                            startIcon={<KeyboardArrowLeftIcon />}
+                            onClick={() => navigateBatch('prev')}
+                            disabled={isProcessingBatch}
+                          >
+                            Previous
+                          </Button>
+                          
+                          <Typography variant="body2" color="text.secondary">
+                            File {currentBatchIndex + 1} of {totalBatchItems}: {batchFilenames[currentBatchIndex] || ''}
+                          </Typography>
+                          
+                          <Button
+                            size="small"
+                            endIcon={<KeyboardArrowRightIcon />}
+                            onClick={() => navigateBatch('next')}
+                            disabled={isProcessingBatch}
+                          >
+                            Next
+                          </Button>
+                        </Box>
+                        
+                        <LinearProgress 
+                          variant={isProcessingBatch ? "indeterminate" : "determinate"} 
+                          value={(currentBatchIndex / (totalBatchItems - 1)) * 100} 
+                          color="secondary"
+                          sx={{ height: 6, borderRadius: 4 }}
+                        />
+                      </Box>
+                    )}
+                    
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="body2" color="text.secondary">
+                        Click any image to select and view it in detail
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Tooltip title="Download all processed images at once" arrow>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            color="primary"
+                            startIcon={<DownloadIcon />}
+                            onClick={() => handleBatchDownload()}
+                          >
+                            Batch Download
+                          </Button>
+                        </Tooltip>
+                        <Tooltip title={doZoom ? "Hover over images to magnify details" : "Enable magnifying glass for all images"} arrow>
+                          <ToggleButton
+                            value="grid-zoom"
+                            selected={doZoom}
+                            onChange={() => setDoZoom(!doZoom)}
+                            aria-label="enable zoom"
+                            size="small"
+                            color="primary"
+                          >
+                            <ZoomInIcon fontSize="small" sx={{ mr: 0.5 }} />
+                            {doZoom ? "Disable Zoom" : "Enable Zoom"}
+                          </ToggleButton>
+                        </Tooltip>
+                      </Box>
                     </Box>
                   </Box>
                   <Grid container spacing={2}>
@@ -685,7 +1032,10 @@ return (
                         }}
                         onClick={() => {
                           setActiveMethod(method);
-                          setViewMode('single');
+                          // Don't change view mode in batch mode
+                          if (!batchThumbnailView) {
+                            setViewMode('single');
+                          }
                         }}
                       >
                         {method === activeMethod && (
@@ -746,10 +1096,65 @@ return (
                 </Box>
               ) : processedFiles[activeMethod] ? (
                 // Single view with comparison slider
-                <div 
-                  className={transparent ? "checkerboard" : ""}
-                  style={!transparent ? { background: colorBG } : {}}
-                >
+                <div>
+                  {/* Batch mode progress and navigation */}
+                  {batchFiles.length > 1 && (
+                    <Box sx={{ mb: 2, width: '100%' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Button
+                          size="small"
+                          startIcon={<KeyboardArrowLeftIcon />}
+                          onClick={() => navigateBatch('prev')}
+                          disabled={isProcessingBatch && batchResults.length === 0}
+                        >
+                          Previous
+                        </Button>
+                        
+                        <Typography variant="body2" color="text.secondary">
+                          File {currentBatchIndex + 1} of {batchResults.length || totalBatchItems}: {
+                            batchResults.length > 0 
+                              ? batchResults[currentBatchIndex]?.originalName 
+                              : batchFilenames[currentBatchIndex] || ''
+                          }
+                        </Typography>
+                        
+                        <Button
+                          size="small"
+                          endIcon={<KeyboardArrowRightIcon />}
+                          onClick={() => navigateBatch('next')}
+                          disabled={isProcessingBatch && batchResults.length === 0}
+                        >
+                          Next
+                        </Button>
+                      </Box>
+                      
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <LinearProgress 
+                          variant={isProcessingBatch && batchResults.length === 0 ? "indeterminate" : "determinate"} 
+                          value={batchResults.length > 0 
+                            ? (currentBatchIndex / (batchResults.length - 1)) * 100
+                            : (currentBatchIndex / (totalBatchItems - 1)) * 100
+                          } 
+                          color="secondary"
+                          sx={{ height: 6, borderRadius: 4, flexGrow: 1, mr: 2 }}
+                        />
+                        
+                        {batchThumbnailView && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => setViewMode(viewMode === 'single' ? 'grid' : 'single')}
+                          >
+                            {viewMode === 'single' ? 'Grid View' : 'Single View'}
+                          </Button>
+                        )}
+                      </Box>
+                    </Box>
+                  )}
+                  <div 
+                    className={transparent ? "checkerboard" : ""}
+                    style={!transparent ? { background: colorBG } : {}}
+                  >
                   <ToggleButton
                     value="zoom"
                     selected={doZoom}
@@ -782,6 +1187,7 @@ return (
                     <path stroke="#549ef7" d="M -5 -2 L -7 0 L -5 2 M -5 -2 L -5 2 M 5 -2 L 7 0 L 5 2 M 5 -2 L 5 2" strokeWidth="1" fill="#549ef7" vectorEffect="non-scaling-stroke"></path>
                   </svg>}
                 </ImgComparisonSlider>}
+                  </div>
                 </div>
               ) : (
                 // Loading state
@@ -968,9 +1374,35 @@ return (
           </Box>
         </Box>
       ) : (
-        <Typography variant="h6" sx={{ color: theme.palette.text.primary }}>
-          {dragOver ? "Click, drag and drop, or paste (ctrl-v) to upload an image or video" : "Click, drag and drop, or paste (ctrl-v) to upload an image or video"}
-        </Typography>
+        <>
+          <Typography variant="h6" sx={{ color: theme.palette.text.primary }}>
+            {dragOver ? "Release to upload files" : "Click, drag and drop multiple files, or paste (ctrl-v) to upload"}
+          </Typography>
+          <Typography variant="body2" sx={{ color: theme.palette.text.secondary, mt: 1 }}>
+            Multiple files can be processed in parallel or sequentially
+          </Typography>
+          
+          {/* Batch upload controls */}
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            mt: 2, 
+            mb: 2,
+            flexWrap: 'wrap',
+            gap: 2
+          }}>
+            <FormControlLabel
+              control={
+                <Checkbox 
+                  checked={parallelProcessing} 
+                  onChange={(e) => setParallelProcessing(e.target.checked)}
+                  color="primary"
+                />
+              }
+              label="Process files in parallel (faster)"
+            />
+          </Box>
+        </>
       )}
     </Box>
   );
