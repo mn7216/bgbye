@@ -79,6 +79,7 @@ function App() {
           flexDirection: 'column',
           alignItems: 'center',
           minHeight: '100vh',
+          width: '100%',
           background: theme.palette.background.default,
           position: 'relative',
         }}
@@ -89,9 +90,9 @@ function App() {
         />
         {/* Removed redundant settings panel */}
         
-        <Box sx={{ mt: '64px', pt: 2 }}>
+        <Box sx={{ mt: '64px', pt: 2, width: '100%' }}>
           {Array.from({ length: processedPanels + 1 }).map((_, index) => (
-            <Box key={index} sx={{ mt: 2 }}>
+            <Box key={index} sx={{ mt: 2, width: '100%' }}>
               <ImageUpload 
                 onProcessed={handleProcessed} 
                 theme={theme} 

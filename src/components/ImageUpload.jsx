@@ -20,9 +20,16 @@ import {
   AccordionSummary,
   AccordionDetails,
   Slider,
+  Grid,
+  Card,
+  CardContent,
+  CardMedia,
+  Tooltip,
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ViewModuleIcon from '@mui/icons-material/ViewModule';
+import ViewCarouselIcon from '@mui/icons-material/ViewCarousel';
 import axios from 'axios';
 import { ImgComparisonSlider } from '@img-comparison-slider/react';
 import pLimit from 'p-limit';
@@ -49,6 +56,7 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
   const [dragOver, setDragOver] = useState(false);
 
   const [doZoom, setDoZoom] = useState(false);
+  const [viewMode, setViewMode] = useState('single'); // 'single' or 'grid'
 
   const [transparent, setTransparent] = useState(true);
   const [colorBG, setColorBG] = useState('radial-gradient(circle, #fcdfa4 0%, #ffd83b 100%)'); //useState('radial-gradient(circle, #87CEFA 0%, #1E90FF 100%)');
@@ -515,19 +523,147 @@ return (
         flexDirection: isPortrait ? 'column' : 'row',
         alignItems: 'flex-start', 
         width: '100%', 
-        maxWidth: '1280px',
         position: 'relative',
       }}>
          
         <Box sx={{ 
           flex: 1, 
-          maxWidth: '1280px', 
           mr: isPortrait ? 0 : 2,
           mb: isPortrait ? 2 : 0,
           width: '100%',
         }}>
             {fileType === 'image' ? (
-              processedFiles[activeMethod] ? (
+              viewMode === 'grid' && Object.keys(processedFiles).length > 1 ? (
+                // Grid view for comparing all processed images
+                <Box sx={{ width: '100%' }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Click any image to select and view it in detail
+                    </Typography>
+                    <Tooltip title={doZoom ? "Hover over images to magnify details" : "Enable magnifying glass for all images"} arrow>
+                      <ToggleButton
+                        value="grid-zoom"
+                        selected={doZoom}
+                        onChange={() => setDoZoom(!doZoom)}
+                        aria-label="enable zoom"
+                        size="small"
+                        color="primary"
+                      >
+                        <ZoomInIcon fontSize="small" sx={{ mr: 0.5 }} />
+                        {doZoom ? "Disable Zoom" : "Enable Zoom"}
+                      </ToggleButton>
+                    </Tooltip>
+                  </Box>
+                  <Grid container spacing={2}>
+                  {/* Original image */}
+                  <Grid item xs={12} sm={6} md={4} lg={3} xl={2}>
+                    <Card sx={{ height: '100%', position: 'relative' }}>
+                      <Box position="relative" height={{ xs: 200, md: 250, lg: 300 }} sx={{ backgroundColor: '#f0f0f0' }}>
+                        {doZoom ? (
+                          <Magnifier 
+                            src={selectedFile} 
+                            width={'100%'} 
+                            height={'100%'} 
+                            style={{objectFit: 'contain'}} 
+                            mgWidth={200}
+                            mgHeight={200}
+                            zoomFactor={2}
+                          />
+                        ) : (
+                          <CardMedia
+                            component="img"
+                            image={selectedFile}
+                            alt="Original"
+                            sx={{ 
+                              height: { xs: 200, md: 250, lg: 300 }, 
+                              objectFit: 'contain',
+                              backgroundColor: '#f0f0f0'
+                            }}
+                          />
+                        )}
+                      </Box>
+                      <CardContent sx={{ p: 1, pb: '8px !important' }}>
+                        <Typography variant="subtitle2" align="center">
+                          Original
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                  
+                  {/* Processed images */}
+                  {Object.entries(processedFiles).map(([method, url]) => (
+                    <Grid item xs={12} sm={6} md={4} lg={3} xl={2} key={method}>
+                      <Card 
+                        sx={{ 
+                          height: '100%',
+                          border: method === activeMethod ? `2px solid ${theme.palette.primary.main}` : 'none',
+                          cursor: 'pointer',
+                          position: 'relative',
+                          boxShadow: method === activeMethod ? `0 0 8px ${theme.palette.primary.main}` : undefined
+                        }}
+                        onClick={() => {
+                          setActiveMethod(method);
+                          setViewMode('single');
+                        }}
+                      >
+                        {method === activeMethod && (
+                          <Box 
+                            sx={{
+                              position: 'absolute',
+                              top: 0,
+                              right: 0,
+                              backgroundColor: theme.palette.primary.main,
+                              color: 'white',
+                              padding: '4px 8px',
+                              zIndex: 2,
+                              fontSize: '0.75rem',
+                              borderBottomLeftRadius: 4
+                            }}
+                          >
+                            Selected
+                          </Box>
+                        )}
+                        <Box 
+                          className={transparent ? "checkerboard" : ""}
+                          sx={!transparent ? { background: colorBG } : {}}
+                          position="relative"
+                        >
+                          {doZoom ? (
+                            <Box height={{ xs: 200, md: 250, lg: 300 }}>
+                              <Magnifier 
+                                src={url} 
+                                width={'100%'} 
+                                height={'100%'} 
+                                style={{objectFit: 'contain'}}
+                                mgWidth={200}
+                                mgHeight={200}
+                                zoomFactor={2}
+                              />
+                            </Box>
+                          ) : (
+                            <CardMedia
+                              component="img"
+                              image={url}
+                              alt={`Processed with ${ModelsInfo[method].displayName}`}
+                              sx={{ 
+                                height: { xs: 200, md: 250, lg: 300 }, 
+                                objectFit: 'contain'
+                              }}
+                            />
+                          )}
+                        </Box>
+                        <CardContent sx={{ p: 1, pb: '8px !important' }}>
+                          <Typography variant="subtitle2" align="center">
+                            {ModelsInfo[method].displayName}
+                          </Typography>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  ))}
+                  </Grid>
+                </Box>
+              ) : processedFiles[activeMethod] ? (
+                // Single view with comparison slider
                 <div 
                   className={transparent ? "checkerboard" : ""}
                   style={!transparent ? { background: colorBG } : {}}
@@ -549,7 +685,13 @@ return (
                     <ZoomInIcon color='primary'/>
                   </ToggleButton>
 
-                  {doZoom && <Magnifier src={processedFiles[activeMethod]} width={'100%'}/>}
+                  {doZoom && <Magnifier 
+                    src={processedFiles[activeMethod]} 
+                    width={'100%'} 
+                    mgWidth={250}
+                    mgHeight={250}
+                    zoomFactor={2}
+                  />}
                
                 {!doZoom && <ImgComparisonSlider class="slider-example-focus">
                   <img slot="first" src={selectedFile} alt="Original" style={{ width: '100%' }} />
@@ -560,15 +702,16 @@ return (
                 </ImgComparisonSlider>}
                 </div>
               ) : (
+                // Loading state
                 <>
-            <div style={{ position: 'relative', display: 'inline-block' }}>
-              <CircularProgress style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }} />
-              <img src={selectedFile} alt="Uploaded" style={{ width: '100%', display: "block", boxShadow: '0px 0px 10px 5px #6464647a' }} />
-            </div>
-          </>
-
+                  <div style={{ position: 'relative', display: 'inline-block' }}>
+                    <CircularProgress style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }} />
+                    <img src={selectedFile} alt="Uploaded" style={{ width: '100%', display: "block", boxShadow: '0px 0px 10px 5px #6464647a' }} />
+                  </div>
+                </>
               )
             ) : (
+              // Video display
               <video src={processedFiles[activeMethod] || selectedFile} controls style={{ width: '100%' }}>
                 Your browser does not support the video tag.
               </video>
@@ -585,6 +728,39 @@ return (
             zIndex: isPortrait ? 1000 : 'auto',
             width: isPortrait ? 'auto' : '250px',
           }}>
+           {/* View mode toggle button */}
+           {fileType === 'image' && Object.keys(processedFiles).length > 1 && (
+              <Paper 
+                sx={{ 
+                  mb: 2, 
+                  p: 1, 
+                  width: '100%', 
+                  backgroundColor: isPortrait ? 'rgba(255,255,255,0.9)' : theme.palette.background.paper 
+                }} 
+                elevation={isPortrait ? 3 : 1}
+              >
+                <Typography variant="body2" color="text.secondary" align="center" sx={{ mb: 1 }}>
+                  View Mode
+                </Typography>
+                <ToggleButtonGroup
+                  value={viewMode}
+                  exclusive
+                  onChange={(e, newViewMode) => newViewMode && setViewMode(newViewMode)}
+                  aria-label="view mode"
+                  size="small"
+                  fullWidth
+                >
+                  <ToggleButton value="single" aria-label="single view">
+                    <ViewCarouselIcon sx={{ mr: isPortrait ? 0 : 1 }} />
+                    {!isPortrait && "Compare"}
+                  </ToggleButton>
+                  <ToggleButton value="grid" aria-label="grid view">
+                    <ViewModuleIcon sx={{ mr: isPortrait ? 0 : 1 }} />
+                    {!isPortrait && "Grid"}
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </Paper>
+            )}
            {(!isPortrait || fileType !== 'video') && <Paper sx={{
               backgroundColor: isPortrait ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0)',
               padding: isPortrait ? 1 : 0,
