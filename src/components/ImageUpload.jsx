@@ -26,6 +26,7 @@ import {
   CardMedia,
   Tooltip,
 } from '@mui/material';
+import { toast } from 'react-hot-toast';
 import DownloadIcon from '@mui/icons-material/Download';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
@@ -396,62 +397,130 @@ const ImageUpload = ({ onProcessed, fileID, selectedModels, showErrorToast }) =>
     }
   };
 
-  const handleDownload = () => {
+  // Helper function to prepare and download a single image
+  const prepareImageForDownload = (imageUrl, methodName) => {
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const image = new Image();
+      image.src = imageUrl;
+
+      image.onload = () => {
+        canvas.width = image.width;
+        canvas.height = image.height;
+
+        if (transparent === false) {
+          if (colorBG.includes("gradient")) {
+            const tempDiv = document.createElement("div");
+            tempDiv.style.display = 'none'; // Hide the div while it's appended
+            tempDiv.style.background = colorBG;
+            document.body.appendChild(tempDiv);
+            const computedStyle = window.getComputedStyle(tempDiv);
+            const bgImage = computedStyle.backgroundImage;
+            document.body.removeChild(tempDiv);
+
+            if (bgImage.startsWith('linear-gradient')) {
+              parseLinearGradient(ctx, bgImage, canvas.width, canvas.height);
+            } else if (bgImage.startsWith('radial-gradient')) {
+              parseRadialGradient(ctx, bgImage, canvas.width, canvas.height);
+            }
+          } else {
+            ctx.fillStyle = colorBG;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+          }
+        }
+
+        ctx.drawImage(image, 0, 0);
+        
+        const fileExtension = 'png';
+        const newFilename = `${originalFilename.split('.')[0]}_${methodName}.${fileExtension}`;
+        const dataUrl = canvas.toDataURL(`image/${fileExtension}`);
+        
+        resolve({ dataUrl, filename: newFilename });
+      };
+    });
+  };
+
+  // Handle batch download of all processed images
+  const handleBatchDownload = async () => {
     if (fileType === 'video') {
-        // Directly download the video file as a .webm
-        const newFilename = `${originalFilename.split('.')[0]}_${activeMethod}.webm`;
+      // For videos, just download the current active method
+      handleDownload();
+      return;
+    }
+    
+    // Show a loading indicator/toast
+    const toastId = toast.loading('Preparing images for download...');
+    
+    try {
+      // If we're using JSZip for batch downloads
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      
+      // Process all images in parallel
+      const downloadPromises = Object.entries(processedFiles).map(async ([method, url]) => {
+        const { dataUrl, filename } = await prepareImageForDownload(url, method);
+        // Extract the base64 data from dataUrl (remove the prefix)
+        const base64Data = dataUrl.split(',')[1];
+        // Add file to zip
+        zip.file(filename, base64Data, { base64: true });
+      });
+      
+      // Wait for all images to be processed
+      await Promise.all(downloadPromises);
+      
+      // Generate zip file
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      
+      // Create download link
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(zipBlob);
+      link.download = `${originalFilename.split('.')[0]}_all_methods.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast.success('All images downloaded as ZIP', { id: toastId });
+    } catch (error) {
+      console.error('Error during batch download:', error);
+      toast.error('Failed to download images', { id: toastId });
+      
+      // Fallback to individual downloads if zip creation fails
+      Object.entries(processedFiles).forEach(([method, url]) => {
         const link = document.createElement('a');
-        link.href = processedFiles[activeMethod];
-        link.download = newFilename;
+        link.href = url;
+        link.download = `${originalFilename.split('.')[0]}_${method}.png`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-    } else {
-        // Handle image downloading with canvas manipulations
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        const image = new Image();
-        image.src = processedFiles[activeMethod];
-
-        image.onload = () => {
-            canvas.width = image.width;
-            canvas.height = image.height;
-
-            if (fileType === 'image' && transparent === false) {
-                if (colorBG.includes("gradient")) {
-                    const tempDiv = document.createElement("div");
-                    tempDiv.style.display = 'none'; // Hide the div while it's appended
-                    tempDiv.style.background = colorBG;
-                    document.body.appendChild(tempDiv);
-                    const computedStyle = window.getComputedStyle(tempDiv);
-                    const bgImage = computedStyle.backgroundImage;
-                    document.body.removeChild(tempDiv);
-
-                    if (bgImage.startsWith('linear-gradient')) {
-                        parseLinearGradient(ctx, bgImage, canvas.width, canvas.height);
-                    } else if (bgImage.startsWith('radial-gradient')) {
-                        parseRadialGradient(ctx, bgImage, canvas.width, canvas.height);
-                    }
-                } else {
-                    ctx.fillStyle = colorBG;
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                }
-            }
-
-            ctx.drawImage(image, 0, 0);
-
-            const fileExtension = 'png';
-            const newFilename = `${originalFilename.split('.')[0]}_${activeMethod}.${fileExtension}`;
-
-            const link = document.createElement('a');
-            link.href = canvas.toDataURL(`image/${fileExtension}`);
-            link.download = newFilename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        };
+      });
     }
-};
+  };
+
+  // Handle single image download
+  const handleDownload = () => {
+    if (fileType === 'video') {
+      // Directly download the video file as a .webm
+      const newFilename = `${originalFilename.split('.')[0]}_${activeMethod}.webm`;
+      const link = document.createElement('a');
+      link.href = processedFiles[activeMethod];
+      link.download = newFilename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      // Handle image downloading with canvas manipulations
+      prepareImageForDownload(processedFiles[activeMethod], activeMethod)
+        .then(({ dataUrl, filename }) => {
+          const link = document.createElement('a');
+          link.href = dataUrl;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        });
+    }
+  };
 
 
 function parseLinearGradient(ctx, bgImage, width, height) {
@@ -540,19 +609,32 @@ return (
                     <Typography variant="body2" color="text.secondary">
                       Click any image to select and view it in detail
                     </Typography>
-                    <Tooltip title={doZoom ? "Hover over images to magnify details" : "Enable magnifying glass for all images"} arrow>
-                      <ToggleButton
-                        value="grid-zoom"
-                        selected={doZoom}
-                        onChange={() => setDoZoom(!doZoom)}
-                        aria-label="enable zoom"
-                        size="small"
-                        color="primary"
-                      >
-                        <ZoomInIcon fontSize="small" sx={{ mr: 0.5 }} />
-                        {doZoom ? "Disable Zoom" : "Enable Zoom"}
-                      </ToggleButton>
-                    </Tooltip>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Tooltip title="Download all processed images at once" arrow>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="primary"
+                          startIcon={<DownloadIcon />}
+                          onClick={() => handleBatchDownload()}
+                        >
+                          Batch Download
+                        </Button>
+                      </Tooltip>
+                      <Tooltip title={doZoom ? "Hover over images to magnify details" : "Enable magnifying glass for all images"} arrow>
+                        <ToggleButton
+                          value="grid-zoom"
+                          selected={doZoom}
+                          onChange={() => setDoZoom(!doZoom)}
+                          aria-label="enable zoom"
+                          size="small"
+                          color="primary"
+                        >
+                          <ZoomInIcon fontSize="small" sx={{ mr: 0.5 }} />
+                          {doZoom ? "Disable Zoom" : "Enable Zoom"}
+                        </ToggleButton>
+                      </Tooltip>
+                    </Box>
                   </Box>
                   <Grid container spacing={2}>
                   {/* Original image */}
