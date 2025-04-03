@@ -83,6 +83,12 @@ const ModelsInfo = {
         shortName: "Anime",
         sourceUrl: 'https://github.com/danielgatis/rembg?tab=readme-ov-file#models', 
         apiUrlVar: 'VITE_ISNET_ANIME_URL'
+    },
+    'birefnet': { 
+        displayName: 'BiRefNet', 
+        shortName: "BiRefNet",
+        sourceUrl: 'https://github.com/ZhengPeng7/BiRefNet', 
+        apiUrlVar: 'VITE_BIREFNET_URL'
     }
 };
 

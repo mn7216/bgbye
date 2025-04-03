@@ -17,7 +17,8 @@ import logging
 import asyncio
 from datetime import datetime, timedelta
 import torch
-from ormbg import ORMBGProcessor 
+from ormbg import ORMBGProcessor
+from birefnet import BiRefNetProcessor
 from typing import Dict
 from contextlib import contextmanager, asynccontextmanager
 
@@ -40,7 +41,7 @@ from carvekit.trimap.generator import TrimapGenerator
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Add ORMBG model initialization
+# Add model initializations
 # Define lifespan context manager for FastAPI
 @asynccontextmanager
 async def lifespan(app):
@@ -54,6 +55,7 @@ async def lifespan(app):
     except asyncio.CancelledError:
         logger.info("Cleanup task cancelled during shutdown")
 
+# Initialize ORMBG
 ormbg_model_path = os.path.expanduser("~/.ormbg/ormbg.pth")
 try:
     ormbg_processor = ORMBGProcessor(ormbg_model_path)
@@ -65,6 +67,17 @@ except FileNotFoundError:
     logger.error(f"ORMBG model file not found: {ormbg_model_path}")
     print("Error: ORMBG model file not found. Please run 'npm run setup-server' to download it.")
     exit(1)
+
+# Initialize BiRefNet with GPU if available
+try:
+    use_gpu = torch.cuda.is_available()
+    birefnet_processor = BiRefNetProcessor(use_gpu=use_gpu)
+    logger.info(f"BiRefNet model loaded successfully with {'GPU' if use_gpu else 'CPU'}")
+except Exception as e:
+    logger.error(f"BiRefNet model initialization failed: {str(e)}")
+    print(f"Warning: BiRefNet model initialization failed: {str(e)}")
+    # We'll initialize it on first use
+    birefnet_processor = None
 
 # Initialize FastAPI with lifespan
 app = FastAPI(lifespan=lifespan)
@@ -155,6 +168,31 @@ def process_with_bria(image):
 def process_with_ormbg(image):
     result = ormbg_processor.process_image(image)
     return result
+
+def process_with_birefnet(image):
+    global birefnet_processor
+    # Lazy loading if processor wasn't initialized successfully during startup
+    if birefnet_processor is None:
+        try:
+            logger.info("Attempting to initialize BiRefNet on first use")
+            use_gpu = torch.cuda.is_available()
+            birefnet_processor = BiRefNetProcessor(use_gpu=use_gpu)
+            logger.info(f"BiRefNet model initialized successfully with {'GPU' if use_gpu else 'CPU'}")
+        except Exception as e:
+            logger.error(f"BiRefNet model initialization failed on first use: {str(e)}")
+            raise ValueError(f"BiRefNet model initialization failed: {str(e)}")
+    
+    # Process the image
+    try:
+        logger.info("Processing image with BiRefNet")
+        result = birefnet_processor(image)
+        logger.info("BiRefNet processing completed successfully")
+        return result
+    except Exception as e:
+        logger.error(f"Error processing image with BiRefNet: {str(e)}")
+        # If BiRefNet processing fails, fall back to u2net
+        logger.info("Falling back to U2Net for background removal")
+        return process_with_rembg(image, model='u2net')
 
 def process_with_inspyrenet(image):
     return inspyrenet_model.process(image, type='rgba')
@@ -300,6 +338,8 @@ async def remove_background(
                     return await asyncio.to_thread(process_with_rembg, image, model=method, **model_params)
             elif method == 'ormbg':
                 return await asyncio.to_thread(process_with_ormbg, image)
+            elif method == 'birefnet':
+                return await asyncio.to_thread(process_with_birefnet, image)
             elif method in ['u2net', 'tracer', 'basnet', 'deeplab']:
                 async with gpu_lock:
                     try:
@@ -355,6 +395,8 @@ async def process_frame(frame_path, method, **kwargs):
             processed_frame = await asyncio.to_thread(process_with_rembg, img, model=method, **model_params)
     elif method == 'ormbg':
         processed_frame = await asyncio.to_thread(process_with_ormbg, img)
+    elif method == 'birefnet':
+        processed_frame = await asyncio.to_thread(process_with_birefnet, img)
     else:
         raise ValueError("Invalid method")
     

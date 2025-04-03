@@ -16,7 +16,7 @@ source venv/bin/activate
 pip install numpy==1.26.4 #WEIRD IMPORT ERROR WORKAROUND FOR REMBG
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 pip install onnxruntime-gpu
-pip install fastapi uvicorn transformers pillow scikit-image transparent-background rembg opencv-python-headless python-multipart requests
+pip install fastapi uvicorn transformers pillow scikit-image transparent-background rembg opencv-python-headless python-multipart requests huggingface_hub scipy timm einops kornia
 pip install carvekit #--extra-index-url https://download.pytorch.org/whl/cu121
 
 # Ensure stuff is in the PATH
@@ -29,6 +29,11 @@ if [ -f requirements.txt ]; then
 fi
 
 mkdir -p ~/.ormbg && echo "Downloading the ORMBG model..." && wget -O ~/.ormbg/ormbg.pth https://huggingface.co/schirrmacher/ormbg/resolve/main/models/ormbg.pth
+
+# No need to download BiRefNet weights as they will be loaded directly from Hugging Face
+# Pre-download the model to avoid delays during runtime
+echo "Pre-downloading BiRefNet model from HuggingFace..."
+python3 -c "from transformers import AutoModelForImageSegmentation; print('Downloading BiRefNet model...'); model = AutoModelForImageSegmentation.from_pretrained('zhengpeng7/BiRefNet', trust_remote_code=True); print('BiRefNet model downloaded successfully!')"
 
 # Pre-download rembg models
 echo "Pre-downloading rembg models..."
