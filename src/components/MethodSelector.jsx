@@ -488,14 +488,6 @@ const MethodSelector = ({ selectedModels, handleModelChange }) => {
             </AccordionDetails>
           </Accordion>
           
-          <Box sx={{ mt: 2, bgcolor: 'action.hover', p: 2, borderRadius: 1 }}>
-            <Typography variant="subtitle2" color="primary">
-              SAM Logo Tip
-            </Typography>
-            <Typography variant="body2">
-              When processing logos with SAM, use the Logo Optimization preset to preserve details.
-            </Typography>
-          </Box>
         </Box>
       </Popover>
     </>
